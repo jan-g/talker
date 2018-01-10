@@ -175,3 +175,21 @@ It's the responsibility of the `pip` command to assemble all the component packa
 into the virtualenv so that they can refer to each other: you'll see a file hierarchy
 under `~/venv-1/lib` that mirrors the Python package hierarchy of that virtualenv.
 
+## Testing
+
+Python has some support for writing unit tests. A test is just a function that tries
+to do something and checks the result. Tools like `pytest` and `tox` can be used to
+automatically scan through a set of directories looking for files and functions that
+match a particular set of patterns (usually, that they start with `test`). PyCharm can
+also run a test for you dynamically.
+
+### What do I test?
+
+Tests come in various sizes and scope. The smallest are "unit tests". These test things
+like an individual function: if I call such a function with a particular input, do I
+get the result that I'm looking for?
+
+It's easy to test mathematical functions. Testing things like IO are more complex; it can
+help to try to structure your code so that the IO code is as simple as possible and hands
+off input to handler functions - you can then test those handler functions by passing
+fake input to them.
