@@ -33,6 +33,16 @@ class Socket:
     def write(self):
         pass
 
+    def close(self):
+        self.socket.close()
+        self.server.remove_client(self)
+
+    def handle_new(self):
+        LOG.debug("New socket registered: %s", self)
+
+    def handle_close(self):
+        LOG.debug("Socket closed: %s", self)
+
 
 class ServerSocket(Socket):
     def __init__(self, client_factory=None, **kwargs):
@@ -56,6 +66,9 @@ class ClientSocket(Socket):
         self.in_buffer = bytes()
         self.out_buffer = bytes()
 
+    def __str__(self):
+        return "{}{}".format(self.__class__.__name__, self.addr)
+
     def has_output(self):
         return len(self.out_buffer) > 0
 
@@ -67,13 +80,6 @@ class ClientSocket(Socket):
         else:
             self.in_buffer += input
             self.handle_input()
-
-    def close(self):
-        self.socket.close()
-        self.server.remove_client(self)
-
-    def handle_close(self):
-        LOG.debug("Client is closed: %s", self.addr)
 
     def handle_input(self):
         LOG.debug("Received some bytes from the client: %s", self.in_buffer.decode("utf-8"))
@@ -87,9 +93,6 @@ class ClientSocket(Socket):
     def queue_output(self, output):
         self.out_buffer += output
 
-    def handle_new(self):
-        LOG.debug("New client: %s", self.addr)
-
 
 class Server(object):
     """You may want to override this
@@ -99,14 +102,7 @@ class Server(object):
     add additional methods used by the client factory
     """
     def __init__(self, host='0.0.0.0', port=8889, client_factory=ClientSocket):
-        self.clients = {ServerSocket(server=self, socket=self.make_socket(host, port), client_factory=client_factory)}
-
-    def make_socket(self, host, port):
-        s = socket.socket()
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind((host, port))
-        s.listen(5)
-        return s
+        self.clients = {ServerSocket(server=self, socket=make_socket(host, port), client_factory=client_factory)}
 
     def loop(self):
         while len(self.clients) > 0:
@@ -155,3 +151,11 @@ class LineBuffered(ClientSocket):
     def handle_line(self, line):
         """Handle a line of input. It'll be in string form"""
         LOG.debug("Received line of input from client %s: %s", self.addr, line)
+
+
+def make_socket(host, port):
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind((host, port))
+    s.listen(5)
+    return s

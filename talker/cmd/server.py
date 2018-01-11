@@ -1,6 +1,6 @@
 import logging
 
-import talker.server
+import talker.mesh
 
 
 def hello():
@@ -11,7 +11,7 @@ def server():
     # Code goes here
     logging.basicConfig(level=logging.DEBUG)
 
-    s = talker.server.Server()
+    s = talker.mesh.Server()
     s.loop()
 
 

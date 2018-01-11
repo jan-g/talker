@@ -9,18 +9,18 @@ class Client(talker.base.LineBuffered):
     def handle_new(self):
         LOG.debug("New connection from %s", self.addr)
         self.nick = None
-        self.output_line("Welcome, {}".format(self.addr))
+        self.output_line("Welcome, {}".format(self))
         self.server.register_speaker(self)
         self.server.tell_speakers("{} has joined".format(self.name))
 
     def handle_close(self):
-        LOG.debug("Connection %s closed", self.addr)
+        LOG.debug("Connection %s closed", self)
         self.server.unregister_speaker(self)
         self.server.tell_speakers("{} has left".format(self.name))
 
     def handle_line(self, line):
         """Handle a line of input. It'll be in string form"""
-        LOG.debug("Received line of input from client %s: %s", self.addr, line)
+        LOG.debug("Received line of input from client %s: %s", self, line)
 
         # handle /-commands
         if line.startswith("/"):
@@ -30,6 +30,7 @@ class Client(talker.base.LineBuffered):
                 try:
                     self.COMMANDS[args[0]](self, args)
                 except Exception as e:
+                    LOG.exception("Problem executing command %s", args[0])
                     self.output_line("Something went wrong trying to do that: {}".format(e))
             else:
                 self.output_line("Unknown command: {}".format(args[0]))
@@ -88,7 +89,13 @@ class Client(talker.base.LineBuffered):
             if client.matches(args[1]):
                 client.close()
 
+    def command_help(self, args):
+        self.output_line("There are {} commands".format(len(self.COMMANDS)))
+        for c in self.COMMANDS:
+            self.output_line("  {}".format(c))
+
     COMMANDS = {
+        "/help": command_help,
         "/quit": command_quit,
         "/who": command_who,
         "/nick": command_nick,
