@@ -13,6 +13,7 @@ class Client(talker.base.LineBuffered):
         self.server.tell_speakers("{} has joined".format(self.addr))
 
     def handle_close(self):
+        LOG.debug("Connection %s closed", self.addr)
         self.server.unregister_speaker(self)
         self.server.tell_speakers("{} has left".format(self.addr))
 
@@ -24,8 +25,8 @@ class Client(talker.base.LineBuffered):
         if line.startswith("/"):
 
             args = line.split()
-            if args[0] in COMMANDS:
-                COMMANDS[args[0]](self, args)
+            if args[0] in Client.COMMANDS:
+                Client.COMMANDS[args[0]](self, args)
             else:
                 self.output_line("Unknown command: {}".format(args[0]))
 
@@ -33,6 +34,14 @@ class Client(talker.base.LineBuffered):
 
             # By default, it's just a line of text
             self.server.tell_speakers("{}: {}".format(self.addr, line))
+
+    def command_quit(self, args):
+        self.close()
+
+    COMMANDS = {
+        "/quit": command_quit,
+    }
+
 
 
 class Server(talker.base.Server):
@@ -53,13 +62,3 @@ class Server(talker.base.Server):
         for target in include:
             if target not in exclude:
                 target.output_line(message)
-
-
-# Commands
-def quit(client, args):
-    client.close()
-
-
-COMMANDS = {
-    "/quit": quit,
-}
