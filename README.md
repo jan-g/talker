@@ -193,3 +193,15 @@ It's easy to test mathematical functions. Testing things like IO are more comple
 help to try to structure your code so that the IO code is as simple as possible and hands
 off input to handler functions - you can then test those handler functions by passing
 fake input to them.
+
+# The protocol
+
+The talker uses CRLF-delimited lines as a record. Each line is either just a thing
+to say, or some kind of `/`-prefixed command.
+
+It's possible to use `netcat` as a client to generate such input and process the
+corresponding responses:
+
+```bash
+% nc -c localhost 8889
+```
