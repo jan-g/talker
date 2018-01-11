@@ -35,11 +35,19 @@ class Client(talker.base.LineBuffered):
             # By default, it's just a line of text
             self.server.tell_speakers("{}: {}".format(self.addr, line))
 
-    def command_quit(self, args):
+    def command_quit(self, _):
         self.close()
+
+    def command_who(self, _):
+        names = sorted([client.addr for client in self.server.list_speakers()])
+        self.output_line("There are {} users online:".format(len(names)))
+
+        for name in sorted([client.addr for client in self.server.list_speakers()]):
+            self.output_line(str(name))
 
     COMMANDS = {
         "/quit": command_quit,
+        "/who": command_who,
     }
 
 
@@ -54,6 +62,9 @@ class Server(talker.base.Server):
 
     def unregister_speaker(self, client):
         self.speakers.remove(client)
+
+    def list_speakers(self):
+        return set(self.speakers)
 
     def tell_speakers(self, message, include=None, exclude=set()):
         if include is None:
