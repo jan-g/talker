@@ -70,12 +70,18 @@ class Client(talker.server.Client):
                 self.output_line("Shutting down {}".format(peer))
                 peer.close()
 
+    def command_broadcast(self, args):
+        message = ' '.join(args[1:])
+        LOG.info("Broadcasting message: %s", message)
+        self.server.peer_broadcast(message)
+
     COMMANDS = dict(talker.server.Client.COMMANDS)
     COMMANDS.update({
         "/peers": command_peers,
         "/peer-listen": command_peer_listen,
         "/peer-connect": command_peer_connect,
         "/peer-kill": command_peer_kill,
+        "/broadcast": command_broadcast,
     })
 
 
@@ -86,7 +92,7 @@ class Server(talker.server.Server):
         super().__init__(client_factory=client_factory, **kwargs)
 
         # Each server has a random, and hopefully unique, id
-        self.peer_id = str(binascii.b2a_hex(os.urandom(10)))
+        self.peer_id = binascii.b2a_hex(os.urandom(10)).decode('utf-8')
 
         # These are other servers directly connected to this one
         self.peers = set()
@@ -105,10 +111,14 @@ class Server(talker.server.Server):
     def register_peer(self, peer):
         LOG.info("New peer added: %s", peer)
         self.peers.add(peer)
+        for o in self.broadcast_observers:
+            o.peer_added(peer)
 
     def unregister_peer(self, peer):
         LOG.info("Peer removed: %s", peer)
         self.peers.remove(peer)
+        for o in self.broadcast_observers:
+            o.peer_removed(peer)
 
     def list_peers(self):
         return set(self.peers)
@@ -164,8 +174,8 @@ class Server(talker.server.Server):
             self.seen[0].add(key)
 
             # Queue up the message for propagation around the network, then handle it locally
-            self.peer_propagate(self._format_peer_line(self.peer_id, self.message_id, message))
-            self.notify_observers(self.peer_id, self.message_id, message)
+            self.peer_propagate(line, [peer])
+            self.notify_observers(source, id, message)
 
         finally:
             # Whatever happens, let's rotate the set of seen messages if necessary.
@@ -173,3 +183,14 @@ class Server(talker.server.Server):
             if now - self.last_rotation >= self.MESSAGE_CACHE_EXPIRY:
                 self.seen = [set(), self.seen[0]]
                 self.last_rotation = now
+
+
+class PeerObserver:
+    def peer_added(self, peer):
+        LOG.debug('New peer detected: %s', peer)
+
+    def peer_removed(self, peer):
+        LOG.debug('Peer removed: %s', peer)
+
+    def notify(self, source, id, message):
+        LOG.debug('Message %s received from %s: %s', id, source, message)

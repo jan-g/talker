@@ -1,3 +1,4 @@
+import argparse
 import logging
 
 import talker.mesh
@@ -8,10 +9,16 @@ def hello():
 
 
 def server():
-    # Code goes here
     logging.basicConfig(level=logging.DEBUG)
 
-    s = talker.mesh.Server()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--port', type=int, default=8889)
+
+    args = parser.parse_args()
+
+    s = talker.mesh.Server(port=args.port)
+    s.observe_broadcast(talker.mesh.PeerObserver())
+
     s.loop()
 
 
