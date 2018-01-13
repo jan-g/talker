@@ -66,7 +66,7 @@ class Client(talker.base.LineBuffered):
 
     def command_nick(self, args):
         # Don't bother with any security for the moment - let people be who they want to be
-        if not args[1].isalpha():
+        if not args[1].isalnum():
             self.output_line("You must give an alphanumeric nickname")
             return
 
