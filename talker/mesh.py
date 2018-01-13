@@ -186,6 +186,13 @@ class Server(talker.server.Server):
 
 
 class PeerObserver:
+    def __init__(self, server=None):
+        self._server = server
+
+    @property
+    def server(self):
+        return self._server
+
     def peer_added(self, peer):
         LOG.debug('New peer detected: %s', peer)
 
@@ -194,3 +201,26 @@ class PeerObserver:
 
     def notify(self, source, id, message):
         LOG.debug('Message %s received from %s: %s', id, source, message)
+
+
+class SpeechObserver(PeerObserver):
+    PREFIX = 'SpeechObserver|'
+
+    def notify(self, source, id, message):
+        if not message.startswith(self.PREFIX):
+            return
+
+        name, line = message[len(self.PREFIX):].split('|', 1)
+
+        self.server.tell_speakers("{}: {}".format(name, line))
+
+
+class SpeakerClient(Client):
+    def speak(self, line):
+        self.server.peer_broadcast("{}{}|{}".format(SpeechObserver.PREFIX, self.name, line))
+
+
+def speaker_server(**kwargs):
+    s = Server(client_factory=SpeakerClient, **kwargs)
+    s.observe_broadcast(SpeechObserver(s))
+    return s

@@ -38,7 +38,10 @@ class Client(talker.base.LineBuffered):
         else:
 
             # By default, it's just a line of text
-            self.server.tell_speakers("{}: {}".format(self.name, line))
+            self.speak(line)
+
+    def speak(self, line):
+        self.server.tell_speakers("{}: {}".format(self.name, line))
 
     @property
     def name(self):

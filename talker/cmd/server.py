@@ -16,8 +16,7 @@ def server():
 
     args = parser.parse_args()
 
-    s = talker.mesh.Server(port=args.port)
-    s.observe_broadcast(talker.mesh.PeerObserver())
+    s = talker.mesh.speaker_server(port=args.port)
 
     s.loop()
 
