@@ -1,7 +1,7 @@
 import argparse
 import logging
 
-import talker.mesh
+import talker.distributed
 import talker.server
 
 
@@ -18,7 +18,7 @@ def server():
 
     args = parser.parse_args()
 
-    s = talker.mesh.speaker_server(port=args.port, peer_id=args.id)
+    s = talker.distributed.speaker_server(port=args.port, peer_id=args.id)
 
     s.loop()
 
