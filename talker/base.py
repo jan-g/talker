@@ -35,7 +35,7 @@ class Socket:
 
     def close(self):
         self.socket.close()
-        self.server.remove_client(self)
+        self.server.remove_socket(self)
 
     def handle_new(self):
         LOG.debug("New socket registered: %s", self)
@@ -51,7 +51,7 @@ class ServerSocket(Socket):
 
     def read(self):
         client, addr = self.socket.accept()
-        self.server.add_client(self.client_factory(server=self.server, socket=client, addr=addr))
+        self.server.add_socket(self.client_factory(server=self.server, socket=client, addr=addr))
 
 
 class ClientSocket(Socket):
@@ -102,12 +102,12 @@ class Server(object):
     add additional methods used by the client factory
     """
     def __init__(self, host='0.0.0.0', port=8889, client_factory=ClientSocket):
-        self.clients = {ServerSocket(server=self, socket=make_socket(host, port), client_factory=client_factory)}
+        self.sockets = {ServerSocket(server=self, socket=make_server_socket(host, port), client_factory=client_factory)}
 
     def loop(self):
-        while len(self.clients) > 0:
-            readers = set(self.clients)
-            writers = {c for c in self.clients if c.has_output()}
+        while len(self.sockets) > 0:
+            readers = set(self.sockets)
+            writers = {c for c in self.sockets if c.has_output()}
             readable, writable, x = select.select(readers, writers, [])
             for r in readable:
                 r.read()
@@ -115,13 +115,13 @@ class Server(object):
             for w in writable:
                 w.write()
 
-    def add_client(self, client):
-        self.clients.add(client)
-        client.handle_new()
+    def add_socket(self, socket):
+        self.sockets.add(socket)
+        socket.handle_new()
 
-    def remove_client(self, client):
-        self.clients.remove(client)
-        client.handle_close()
+    def remove_socket(self, socket):
+        self.sockets.remove(socket)
+        socket.handle_close()
 
 
 class LineBuffered(ClientSocket):
@@ -153,7 +153,7 @@ class LineBuffered(ClientSocket):
         LOG.debug("Received line of input from client %s: %s", self.addr, line)
 
 
-def make_socket(host, port):
+def make_server_socket(host, port):
     s = socket.socket()
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((host, port))

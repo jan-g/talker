@@ -51,15 +51,15 @@ class Client(talker.server.Client):
     def command_peer_listen(self, host, port):
         port = int(port)
         LOG.info("Adding PeerServer at %s %d", host, port)
-        s = talker.base.make_socket(host, port)
+        s = talker.base.make_server_socket(host, port)
         peer_server = talker.base.ServerSocket(server=self.server, socket=s, client_factory=PeerClient)
-        self.server.add_client(peer_server)
+        self.server.add_socket(peer_server)
 
     def command_peer_connect(self, host, port):
         port = int(port)
         LOG.info("Adding PeerClient at %s %d", host, port)
         peer = PeerClient.connect(self.server, host, port)
-        self.server.add_client(peer)
+        self.server.add_socket(peer)
 
     def command_peer_kill(self, host, port):
         port = int(port)
