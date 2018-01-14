@@ -45,7 +45,7 @@ of `python` in there. Additionally, any executable scripts that you declare in y
 ```python
     entry_points={
         'console_scripts': [
-            'talker-test = talker.cmd.server:hello',
+            'talker-test = talker.cmd:hello',
         ],
     },
 ```
@@ -63,7 +63,7 @@ Successfully installed talker
 ```
 
 ... then it'll create an executable script in `~/venv-1/bin/talker-server` which, when I
-run it, will call the `main` function defined in the `talker/cmd/server.py` file.
+run it, will call the `hello` function defined in the `talker/cmd.py` file.
 I can run it like this:
 
 ```sh

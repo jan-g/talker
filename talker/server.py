@@ -28,7 +28,7 @@ class Client(talker.base.LineBuffered):
             args = line.split()
             if args[0] in self.COMMANDS:
                 try:
-                    self.COMMANDS[args[0]](self, args)
+                    self.COMMANDS[args[0]](self, *args[1:])
                 except Exception as e:
                     LOG.exception("Problem executing command %s", args[0])
                     self.output_line("Something went wrong trying to do that: {}".format(e))
@@ -54,45 +54,42 @@ class Client(talker.base.LineBuffered):
 
     # The following are simple example commands
 
-    def command_quit(self, _):
+    def command_quit(self):
         self.close()
 
-    def command_who(self, _):
+    def command_who(self):
         names = sorted([client.name for client in self.server.list_speakers()])
         self.output_line("There are {} users online:".format(len(names)))
 
         for name in names:
             self.output_line(str(name))
 
-    def command_nick(self, args):
+    def command_nick(self, nick):
         # Don't bother with any security for the moment - let people be who they want to be
-        if not args[1].isalnum():
+        if not nick.isalnum():
             self.output_line("You must give an alphanumeric nickname")
             return
 
         old_name = self.name
-        self.nick = args[1]
+        self.nick = nick
         self.server.tell_speakers("{} renames themself as {}".format(old_name, self.nick))
 
-    def command_tell(self, args):
-        if len(args) < 3:
+    def command_tell(self, who, *what):
+        if len(what) == 0:
             self.output_line("Tell who, what?")
             return
 
         # locate everyone with that name
-        who = args[1]
-        what = " ".join(args[2:])
-
-        self.server.tell_speakers("{} whispers: {}".format(self.name, what),
+        self.server.tell_speakers("{} whispers: {}".format(self.name, " ".join(what)),
                                   include={s for s in self.server.list_speakers()
                                            if s.matches(who)})
 
-    def command_kill(self, args):
+    def command_kill(self, who):
         for client in self.server.list_speakers():
-            if client.matches(args[1]):
+            if client.matches(who):
                 client.close()
 
-    def command_help(self, args):
+    def command_help(self):
         self.output_line("There are {} commands".format(len(self.COMMANDS)))
         for c in self.COMMANDS:
             self.output_line("  {}".format(c))
