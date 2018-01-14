@@ -251,6 +251,8 @@ class PeerObserver:
         LOG.debug('Message %s received from %s via %s: %s', id, source, peer, message)
 
 
+# Some example extensions using the above now follow. This causes speech to be broadcast to all connected servers
+
 class SpeechObserver(PeerObserver):
 
     def notify(self, _, source, id, message):
@@ -281,6 +283,12 @@ def speaker_server(**kwargs):
     s.observe_broadcast(TopologyObserver(s))
     return s
 
+
+# This is a more complicated observer of peer-to-peer messages.
+# As servers are connected to and disconnected from each other, each node
+# broadcasts across the network the latest version of its connectivity
+# information. TopologyObservers on each server collate this information
+# and use it to form an up-to-date map of who is connected to whom.
 
 class TopologyObserver(PeerObserver):
 

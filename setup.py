@@ -20,6 +20,7 @@ setup(
     entry_points={
         'console_scripts': [
             'talker-test = talker.cmd:hello',
+            'talker-simple = talker.cmd:simple_server',
             'talker-server = talker.cmd:server',
         ],
     },
