@@ -1,7 +1,7 @@
 import logging
 import select
 import socket
-
+import time
 
 LOG = logging.getLogger(__name__)
 
@@ -101,19 +101,27 @@ class Server(object):
     extend __init__
     add additional methods used by the client factory
     """
+    TICK = 1
+
     def __init__(self, host='0.0.0.0', port=8889, client_factory=ClientSocket):
         self.sockets = {ServerSocket(server=self, socket=make_server_socket(host, port), client_factory=client_factory)}
 
     def loop(self):
+        last_tick = time.time()
         while len(self.sockets) > 0:
             readers = set(self.sockets)
             writers = {c for c in self.sockets if c.has_output()}
-            readable, writable, x = select.select(readers, writers, [])
+            readable, writable, x = select.select(readers, writers, [], self.TICK)
             for r in readable:
                 r.read()
 
             for w in writable:
                 w.write()
+
+            now = time.time()
+            if now - last_tick >= self.TICK:
+                self.tick()
+                last_tick = now
 
     def add_socket(self, socket):
         self.sockets.add(socket)
@@ -122,6 +130,9 @@ class Server(object):
     def remove_socket(self, socket):
         self.sockets.remove(socket)
         socket.handle_close()
+
+    def tick(self):
+        pass
 
 
 class LineBuffered(ClientSocket):

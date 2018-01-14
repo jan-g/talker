@@ -222,6 +222,11 @@ class Server(talker.server.Server):
                 self.seen = [set(), self.seen[0]]
                 self.last_rotation = now
 
+    def tick(self):
+        """Tick once every second or so"""
+        for obs in self.broadcast_observers.values():
+            obs.tick()
+
 
 class PeerObserver:
     def __init__(self, server=None):
@@ -249,6 +254,9 @@ class PeerObserver:
 
     def notify(self, peer, source, id, message):
         LOG.debug('Message %s received from %s via %s: %s', id, source, peer, message)
+
+    def tick(self):
+        pass
 
 
 # Some example extensions using the above now follow. This causes speech to be broadcast to all connected servers

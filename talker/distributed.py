@@ -7,6 +7,7 @@ when all answers are in.
 """
 
 import logging
+import time
 
 import talker.mesh
 
@@ -46,17 +47,19 @@ def speaker_server(**kwargs):
 # It can broadcast requests and handle their eventual responses.
 
 class ScatterGatherObserver(talker.mesh.PeerObserver):
+    CALLBACK_CACHE_EXPIRY = 1
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.request_id = 0
-        self.outstanding_requests = {}
+        self.outstanding_requests = [{}, {}]
+        self.last_rotation = time.time()
 
     def scatter_request(self, message, target=None, callback=None):
         # Give this request an id
         self.request_id += 1
-        self.outstanding_requests[self.request_id] = ({}, callback)
+        self.outstanding_requests[0][self.request_id] = ({}, callback)
         self.server.peer_broadcast('{}|{}|{}'.format(self.prefix(), self.request_id, message), target=target)
 
     def notify(self, peer, source, id, message):
@@ -68,22 +71,44 @@ class ScatterGatherObserver(talker.mesh.PeerObserver):
 
         response_id = int(response_id)
 
-        if response_id not in self.outstanding_requests:
-            LOG.info('Dropping incoming response to %d from %s (%d): %s', response_id, source, id, payload)
-            return
+        try:
+            for outstanding in self.outstanding_requests:
+                if response_id not in outstanding:
+                    LOG.info('Dropping incoming response to %d from %s (%d): %s', response_id, source, id, payload)
+                    continue
 
-        responses, callback = self.outstanding_requests[response_id]
-        if source in responses:
-            LOG.info('Dropping duplicate response to %d from %s (%d): %s', response_id, source, id, payload)
-            return
+                responses, callback = outstanding[response_id]
+                if source in responses:
+                    LOG.info('Dropping duplicate response to %d from %s (%d): %s', response_id, source, id, payload)
+                    return
 
-        responses[source] = payload
-        if set(responses) == self.server.observer(talker.mesh.TopologyObserver).reachable():
-            LOG.debug('Have complete set of responses to %d, triggering callback', response_id)
-            callback(responses)
-            del self.outstanding_requests[response_id]
-        else:
-            LOG.debug('partial set of responses to %d: %s', response_id, responses)
+                responses[source] = payload
+                if set(responses) == self.server.observer(talker.mesh.TopologyObserver).reachable():
+                    LOG.debug('Have complete set of responses to %d, triggering callback', response_id)
+                    callback(responses)
+                    del outstanding[response_id]
+                else:
+                    LOG.debug('partial set of responses to %d: %s', response_id, responses)
+
+                return
+
+        finally:
+            self.rollover()
+
+    def rollover(self):
+        # Whatever happens, let's rotate the set of outstanding callbacks
+        now = time.time()
+        if now - self.last_rotation >= self.CALLBACK_CACHE_EXPIRY:
+            for response_id in self.outstanding_requests[1]:
+                responses, callback = self.outstanding_requests[1][response_id]
+                LOG.debug('Timing out incomplete response %d with responses %s', response_id, responses)
+                callback(responses, complete=False)
+
+            self.outstanding_requests = [{}, self.outstanding_requests[0]]
+            self.last_rotation = now
+
+    def tick(self):
+        self.rollover()
 
     @staticmethod
     def parse_scatter_gather(source, id, message):
@@ -104,7 +129,7 @@ class WhoObserver(talker.mesh.PeerObserver):
         respond(self.server, result)
 
     def who(self, client):
-        def callback(responses):
+        def callback(responses, complete=True):
             LOG.debug('Who responses are all in: %s', responses)
             client.result_who({server: responses[server].split(';') if responses[server] != '' else []
                                for server in responses})
