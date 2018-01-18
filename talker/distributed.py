@@ -15,6 +15,10 @@ LOG = logging.getLogger(__name__)
 
 
 class WhoClient(talker.mesh.SpeakerClient):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.register_command("/who", WhoClient.command_who)
+
     def command_who(self):
         helper = self.server.observer(WhoObserver)
         helper.who(self)
@@ -27,11 +31,6 @@ class WhoClient(talker.mesh.SpeakerClient):
             self.output_line('  Server: {}'.format(server))
             for speaker in sorted(responses[server]):
                 self.output_line('    {}'.format(speaker))
-
-    COMMANDS = dict(talker.mesh.SpeakerClient.COMMANDS)
-    COMMANDS.update({
-        '/who': command_who,
-    })
 
 
 def speaker_server(**kwargs):

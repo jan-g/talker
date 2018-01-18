@@ -42,6 +42,14 @@ class PeerClient(talker.base.LineBuffered):
 
 
 class Client(talker.server.Client):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.register_command("/peers", Client.command_peers)
+        self.register_command("/peer-listen", Client.command_peer_listen)
+        self.register_command("/peer-connect", Client.command_peer_connect)
+        self.register_command("/peer-kill", Client.command_peer_kill)
+        self.register_command("/broadcast", Client.command_broadcast)
+
     def command_peers(self):
         peers = self.server.list_peers()
         self.output_line("There are {} peers directly connected".format(len(peers)))
@@ -73,15 +81,6 @@ class Client(talker.server.Client):
         message = ' '.join(args)
         LOG.info("Broadcasting message: %s", message)
         self.server.peer_broadcast(message)
-
-    COMMANDS = dict(talker.server.Client.COMMANDS)
-    COMMANDS.update({
-        "/peers": command_peers,
-        "/peer-listen": command_peer_listen,
-        "/peer-connect": command_peer_connect,
-        "/peer-kill": command_peer_kill,
-        "/broadcast": command_broadcast,
-    })
 
 
 class Server(talker.server.Server):
@@ -269,6 +268,10 @@ class SpeechObserver(PeerObserver):
 
 
 class SpeakerClient(Client):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.register_command("/reachable", SpeakerClient.command_reachable)
+
     def speak(self, line):
         self.server.peer_broadcast("{}|{}".format(self.name, line), target=SpeechObserver)
 
@@ -278,11 +281,6 @@ class SpeakerClient(Client):
         self.output_line("There are {} reachable peers:".format(len(reachable)))
         for node in reachable:
             self.output_line(node)
-
-    COMMANDS = dict(Client.COMMANDS)
-    COMMANDS.update({
-        "/reachable": command_reachable,
-    })
 
 
 def speaker_server(**kwargs):

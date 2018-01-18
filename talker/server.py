@@ -6,6 +6,19 @@ LOG = logging.getLogger(__name__)
 
 class Client(talker.base.LineBuffered):
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.commands = {}
+        self.register_command("/help", Client.command_help)
+        self.register_command("/quit", Client.command_quit)
+        self.register_command("/who", Client.command_who)
+        self.register_command("/nick", Client.command_nick)
+        self.register_command("/tell", Client.command_tell)
+        self.register_command("/kill", Client.command_kill)
+
+    def register_command(self, prefix, callback):
+        self.commands[prefix] = callback
+
     def handle_new(self):
         LOG.debug("New connection from %s", self.addr)
         self.nick = None
@@ -26,9 +39,9 @@ class Client(talker.base.LineBuffered):
         if line.startswith("/"):
 
             args = line.split()
-            if args[0] in self.COMMANDS:
+            if args[0] in self.commands:
                 try:
-                    self.COMMANDS[args[0]](self, *args[1:])
+                    self.commands[args[0]](self, *args[1:])
                 except Exception as e:
                     LOG.exception("Problem executing command %s", args[0])
                     self.output_line("Something went wrong trying to do that: {}".format(e))
@@ -93,16 +106,6 @@ class Client(talker.base.LineBuffered):
         self.output_line("There are {} commands".format(len(self.COMMANDS)))
         for c in self.COMMANDS:
             self.output_line("  {}".format(c))
-
-    COMMANDS = {
-        "/help": command_help,
-        "/quit": command_quit,
-        "/who": command_who,
-        "/nick": command_nick,
-        "/tell": command_tell,
-        "/kill": command_kill,
-    }
-
 
 
 class Server(talker.base.Server):
