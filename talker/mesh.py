@@ -9,7 +9,6 @@ a client socket), and the Client extensions to add commands to manage those.
 import binascii
 import logging
 import os
-import socket
 import time
 
 import talker.server
@@ -22,8 +21,7 @@ class PeerClient(talker.base.LineBuffered):
 
     @classmethod
     def connect(cls, server, host, port):
-        s = socket.socket()
-        s.connect((host, port))
+        s = server.make_client_socket(host, port)
         peer = cls(addr=(host, port), server=server, socket=s)
         return peer
 
@@ -59,7 +57,7 @@ class Client(talker.server.Client):
     def command_peer_listen(self, host, port):
         port = int(port)
         LOG.info("Adding PeerServer at %s %d", host, port)
-        s = talker.base.make_server_socket(host, port)
+        s = self.server.make_server_socket(host, port)
         peer_server = talker.base.ServerSocket(server=self.server, socket=s, client_factory=PeerClient)
         self.server.add_socket(peer_server)
 

@@ -51,6 +51,7 @@ class ServerSocket(Socket):
 
     def read(self):
         client, addr = self.socket.accept()
+        client.setblocking(False)
         self.server.add_socket(self.client_factory(server=self.server, socket=client, addr=addr))
 
 
@@ -94,6 +95,22 @@ class ClientSocket(Socket):
         self.out_buffer += output
 
 
+def _make_server_socket(host, port):
+    s = socket.socket()
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind((host, port))
+    s.setblocking(False)
+    s.listen(5)
+    return s
+
+
+def _make_client_socket(host, port):
+    s = socket.socket()
+    s.setblocking(False)
+    s.connect((host, port))
+    return s
+
+
 class Server(object):
     """You may want to override this
 
@@ -103,7 +120,10 @@ class Server(object):
     """
     TICK = 1
 
-    def __init__(self, host='0.0.0.0', port=8889, client_factory=ClientSocket):
+    def __init__(self, host='0.0.0.0', port=8889, client_factory=ClientSocket,
+                 make_server_socket=_make_server_socket, make_client_socket=_make_client_socket):
+        self.make_server_socket = make_server_socket
+        self.make_client_socket = make_client_socket
         self.sockets = {ServerSocket(server=self, socket=make_server_socket(host, port), client_factory=client_factory)}
 
     def loop(self):
@@ -162,11 +182,3 @@ class LineBuffered(ClientSocket):
     def handle_line(self, line):
         """Handle a line of input. It'll be in string form"""
         LOG.debug("Received line of input from client %s: %s", self.addr, line)
-
-
-def make_server_socket(host, port):
-    s = socket.socket()
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind((host, port))
-    s.listen(5)
-    return s
