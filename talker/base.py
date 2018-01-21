@@ -136,26 +136,28 @@ class Server(object):
     def loop(self):
         last_tick = time.time()
         while len(self.sockets) > 0:
-            for s in self.sockets:
-                if s.has_output():
-                    self.selector.modify(s, selectors.EVENT_READ | selectors.EVENT_WRITE)
-                else:
-                    self.selector.modify(s, selectors.EVENT_READ)
-
-            events = self.selector.select(self.TICK)
-
-            for r, m in events:
-                if m & selectors.EVENT_READ and r.fileobj in self.sockets:
-                    r.fileobj.read()
-
-            for w, m in events:
-                if m & selectors.EVENT_WRITE and w.fileobj in self.sockets:
-                    w.fileobj.write()
+            self.process_sockets()
 
             now = time.time()
             if now - last_tick >= self.TICK:
                 self.tick()
                 last_tick = now
+
+    def process_sockets(self):
+        for s in self.sockets:
+            if s.has_output():
+                self.selector.modify(s, selectors.EVENT_READ | selectors.EVENT_WRITE)
+            else:
+                self.selector.modify(s, selectors.EVENT_READ)
+
+        events = self.selector.select(self.TICK)
+
+        for r, m in events:
+            if m & selectors.EVENT_READ and r.fileobj in self.sockets:
+                r.fileobj.read()
+        for w, m in events:
+            if m & selectors.EVENT_WRITE and w.fileobj in self.sockets:
+                w.fileobj.write()
 
     def add_socket(self, socket):
         self.sockets.add(socket)
