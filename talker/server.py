@@ -103,8 +103,8 @@ class Client(talker.base.LineBuffered):
                 client.close()
 
     def command_help(self):
-        self.output_line("There are {} commands".format(len(self.COMMANDS)))
-        for c in self.COMMANDS:
+        self.output_line("There are {} commands".format(len(self.commands)))
+        for c in self.commands:
             self.output_line("  {}".format(c))
 
 

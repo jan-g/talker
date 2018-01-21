@@ -1,5 +1,5 @@
 import logging
-import select
+import selectors
 import socket
 import time
 
@@ -23,12 +23,12 @@ class Socket:
     def fileno(self):
         return self.socket.fileno()
 
-    def has_output(self):
-        return False
-
     def read(self):
         """If the socket has something to read, handle that read and propagate events"""
         pass
+
+    def has_output(self):
+        return False
 
     def write(self):
         pass
@@ -70,9 +70,6 @@ class ClientSocket(Socket):
     def __str__(self):
         return "{}{}".format(self.__class__.__name__, self.addr)
 
-    def has_output(self):
-        return len(self.out_buffer) > 0
-
     def read(self):
         input = self.socket.recv(16384)
         if len(input) == 0:
@@ -85,6 +82,9 @@ class ClientSocket(Socket):
     def handle_input(self):
         LOG.debug("Received some bytes from the client: %s", self.in_buffer.decode("utf-8"))
         self.in_buffer = bytes()
+
+    def has_output(self):
+        return len(self.out_buffer) > 0
 
     def write(self):
         if len(self.out_buffer) > 0:
@@ -107,7 +107,10 @@ def _make_server_socket(host, port):
 def _make_client_socket(host, port):
     s = socket.socket()
     s.setblocking(False)
-    s.connect((host, port))
+    try:
+        s.connect((host, port))
+    except BlockingIOError:
+        pass
     return s
 
 
@@ -121,22 +124,33 @@ class Server(object):
     TICK = 1
 
     def __init__(self, host='0.0.0.0', port=8889, client_factory=ClientSocket,
-                 make_server_socket=_make_server_socket, make_client_socket=_make_client_socket):
+                 make_server_socket=_make_server_socket,
+                 make_client_socket=_make_client_socket,
+                 selector=selectors.DefaultSelector):
         self.make_server_socket = make_server_socket
         self.make_client_socket = make_client_socket
-        self.sockets = {ServerSocket(server=self, socket=make_server_socket(host, port), client_factory=client_factory)}
+        self.selector = selector()
+        self.sockets = set()
+        self.add_socket(ServerSocket(server=self, socket=make_server_socket(host, port), client_factory=client_factory))
 
     def loop(self):
         last_tick = time.time()
         while len(self.sockets) > 0:
-            readers = set(self.sockets)
-            writers = {c for c in self.sockets if c.has_output()}
-            readable, writable, x = select.select(readers, writers, [], self.TICK)
-            for r in readable:
-                r.read()
+            for s in self.sockets:
+                if s.has_output():
+                    self.selector.modify(s, selectors.EVENT_READ | selectors.EVENT_WRITE)
+                else:
+                    self.selector.modify(s, selectors.EVENT_READ)
 
-            for w in writable:
-                w.write()
+            events = self.selector.select(self.TICK)
+
+            for r, m in events:
+                if m & selectors.EVENT_READ and r.fileobj in self.sockets:
+                    r.fileobj.read()
+
+            for w, m in events:
+                if m & selectors.EVENT_WRITE and w.fileobj in self.sockets:
+                    w.fileobj.write()
 
             now = time.time()
             if now - last_tick >= self.TICK:
@@ -145,10 +159,12 @@ class Server(object):
 
     def add_socket(self, socket):
         self.sockets.add(socket)
+        self.selector.register(socket, selectors.EVENT_READ | selectors.EVENT_WRITE)
         socket.handle_new()
 
     def remove_socket(self, socket):
         self.sockets.remove(socket)
+        self.selector.unregister(socket)
         socket.handle_close()
 
     def tick(self):
