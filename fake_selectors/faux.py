@@ -218,3 +218,32 @@ class FakeSocket:
 
     def shutdown(self, flag):
         raise NotImplementedError()
+
+
+class Selector:
+    def register(self, fileobj, events, data=None):
+        raise NotImplementedError()
+
+    def unregister(self, fileobj):
+        raise NotImplementedError()
+
+    def modify(self, fileobj, events, data=None):
+        raise NotImplementedError()
+
+    def select(self, timeout=None):
+        raise NotImplementedError()
+
+    def close(self):
+        raise NotImplementedError()
+
+    def get_key(self, fileobj):
+        raise NotImplementedError()
+
+    def get_map(self):
+        raise NotImplementedError()
+
+    def __enter__(self):
+        raise NotImplementedError()
+
+    def __exit__(self, *args):
+        raise NotImplementedError()
