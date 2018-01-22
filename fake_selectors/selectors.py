@@ -17,28 +17,43 @@ TODO: messages may be marked as having a causal originator
 
 import collections
 import logging
+import socket
 
 LOG = logging.getLogger(__name__)
 
 
 class Mux:
     def __init__(self):
-        pass
+        self.listeners = {}    # addr -> Fakesocket
+        self.connections = {}  # (from, to) -> FakeSocket (the receiver)
 
-    def connect(self, client, address):
-        raise NotImplementedError()
+    def accept(self, server, peer):
+        conn = FakeSocket(self)
+        conn.sock_addr = server.sock_addr
+        conn.peer_addr = peer.sock_addr
+        self.connections[conn.sock_addr, conn.peer_addr] = peer
+        self.connections[conn.peer_addr, conn.sock_addr] = conn
+        return conn, peer.sock_addr
+
+    def connect(self, client, addr):
+        server = self.listeners[addr]
+        server._enqueue(client)
 
     def register_listener(self, server):
-        raise NotImplementedError()
+        assert server.sock_addr not in self.listeners
+        self.listeners[server.sock_addr] = server
 
     def close_listener(self, server):
-        raise NotImplementedError()
+        del self.listeners[server.sock_addr]
 
     def close_connected(self, sock):
-        raise NotImplementedError()
+        # Enqueue a closing packet at the other end
+        peer = self.connections[sock.self_addr, sock.peer_addr]
+        peer._enqueue(b'')
+        del self.connections[sock.self_addr, sock.peer_addr]
 
-    def send(self, source, data):
-        raise NotImplementedError()
+    def send(self, sock, data):
+        self.connections[sock.self_addr, sock.peer_addr]._enqueue(data)
 
 
 class StateError(BaseException):
@@ -60,6 +75,24 @@ class FakeSocket:
 
         self.incoming_pipe = collections.deque()
         self.incoming_limit = 0
+
+    def _enqueue(self, datagram):
+        self.incoming_pipe.append(datagram)
+
+    def accept(self):
+        assert self.open
+        assert self.listening
+
+        if self.incoming_limit == 0:
+            if not self.blocking:
+                raise BlockingIOError()
+            raise StateError('accept called on socket with no asserted input')
+
+        if self.incoming_limit is not None:
+            self.incoming_limit -= 1
+
+        peer = self.incoming_pipe.popleft()
+        return self.mux.accept(self, peer)
 
     def bind(self, address):
         assert self.sock_addr is None
@@ -125,7 +158,8 @@ class FakeSocket:
             return b''
 
         if self.incoming_limit == 0:
-            assert not self.blocking
+            if not self.blocking:
+                raise BlockingIOError()
             raise StateError('recv called on socket with no asserted input')
 
         if self.incoming_limit is not None:
@@ -163,41 +197,24 @@ class FakeSocket:
         self.mux.send(self, data)
 
     def sendall(self, data, flags=None):
-        return super().sendall(data, flags)
+        raise NotImplementedError()
 
     def sendmsg(self, buffers, ancdata=None, flags=None, address=None):
-        return super().sendmsg(buffers, ancdata, flags, address)
+        raise NotImplementedError()
 
     def sendto(self, data, flags=None, *args, **kwargs):
-        return super().sendto(data, flags, *args, **kwargs)
+        raise NotImplementedError()
 
     def setblocking(self, flag):
-        return super().setblocking(flag)
+        self.blocking = flag
 
     def setsockopt(self, level, option, value):
-        return super().setsockopt(level, option, value)
+        if (level, option) == (socket.SOL_SOCKET, socket.SO_REUSEADDR):
+            return
+        raise NotImplementedError()
 
     def settimeout(self, timeout):
-        return super().settimeout(timeout)
+        raise NotImplementedError()
 
     def shutdown(self, flag):
-        return super().shutdown(flag)
-
-    def _accept(self):
-        return super()._accept()
-
-    def __del__(self, *args, **kwargs):
-        return super().__del__(*args, **kwargs)
-
-    def __getattribute__(self, *args, **kwargs):
-        return super().__getattribute__(*args, **kwargs)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    @staticmethod
-    def __new__(*args, **kwargs):
-        return super().__new__(*args, **kwargs)
-
-    def __repr__(self, *args, **kwargs):
-        return super().__repr__(*args, **kwargs)
+        raise NotImplementedError()
