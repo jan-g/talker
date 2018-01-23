@@ -75,7 +75,9 @@ class Mux:
         self.release_fd(sock.fileno())
 
     def send(self, sock, data):
-        sock._enqueue(data)
+        while b'\r\n' in data:
+            packet, crlf, data = data.partition(b'\r\n')
+            sock.peer._enqueue(packet + crlf)
 
     def unblocked_data_outstanding(self):
         return any(sock._readable() for sock in self.fd_map.values())
@@ -103,9 +105,22 @@ class FakeSocket:
         self.blocking = True
 
         self.incoming_pipe = collections.deque()
-        self.incoming_limit = 0
+        self.incoming_limit = None
 
         self.fd = mux.get_fd(self)
+
+    def __str__(self):
+        result = '{}({})'.format(self.state, self.addr)
+        if self.state == FakeSocket.CONNECTING:
+            result += ' -> ({})'.format(self.peer_addr)
+        elif self.state == FakeSocket.CONNECTED:
+            result += ' => {}({})'.format(self.peer.state, self.peer.addr)
+        result += ' {}{}#{}'.format('R' if self._readable() else '',
+                                    'W' if self._writable() else '',
+                                    len(self.incoming_pipe))
+        return result
+
+    __repr__ = __str__
 
     def _enqueue(self, datagram):
         self.incoming_pipe.append(datagram)
@@ -150,6 +165,7 @@ class FakeSocket:
             self.addr = self.mux.auto_bind()
 
         self.state = FakeSocket.CONNECTING
+        self.peer_addr = address
         self.mux.connect(self, address)
 
     def connect_ex(self, address):
@@ -284,6 +300,7 @@ class Selector:
         self.registry[fileobj] = (events, data)
 
     def select(self, timeout=None):
+        LOG.debug('Entering select, registry = %s', self.registry)
         result = []
         for fileobj in self.registry:
             sock = self.mux.fd_map[fileobj.fileno()]
@@ -294,7 +311,8 @@ class Selector:
             if events & selectors.EVENT_WRITE and sock._writable():
                 value |= selectors.EVENT_WRITE
             if value != 0:
-                result.append((selectors.SelectorKey(sock, None, events, data), value))
+                result.append((selectors.SelectorKey(fileobj, None, events, data), value))
+        LOG.debug('Select returns: %s', result)
         return result
 
     def close(self):

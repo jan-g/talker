@@ -51,6 +51,7 @@ class ServerSocket(Socket):
 
     def read(self):
         client, addr = self.socket.accept()
+        LOG.debug('Accepted new connection: %s %s', client, addr)
         client.setblocking(False)
         self.server.add_socket(self.client_factory(server=self.server, socket=client, addr=addr))
 

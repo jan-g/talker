@@ -1,7 +1,7 @@
 import logging
 import socket
 
-import talker.base
+import talker.server
 import fake_selectors.faux as socks
 
 LOG = logging.getLogger(__name__)
@@ -34,14 +34,29 @@ def test_basic_server():
     def _make_selector():
         return socks.Selector(mux)
 
-    s = talker.base.Server(make_server_socket=_make_server_socket,
-                           make_client_socket=_make_client_socket,
-                           selector=_make_selector,
-                           host='0.0.0.0',
-                           port=8889)
+    s = talker.server.Server(make_server_socket=_make_server_socket,
+                             make_client_socket=_make_client_socket,
+                             selector=_make_selector,
+                             host='0.0.0.0',
+                             port=8889)
 
-    c = _make_client_socket()
+    c = _make_client_socket('0.0.0.0', 8889)
+    c.incoming_limit = 0
 
     while mux.unblocked_data_outstanding():
         LOG.debug('Looping through process_sockets')
-        s.process_sockets()
+        s.process_sockets()  # Handle any reads / accepts
+        s.process_sockets()  # Ensure any data is flushed through from corresponding writes
+
+    LOG.debug('fd map: %s', mux.fd_map)
+
+    c.send(b'/who\r\n')
+
+    while mux.unblocked_data_outstanding():
+        LOG.debug('Looping through process_sockets')
+        s.process_sockets()  # Handle any reads / accepts
+        s.process_sockets()  # Ensure any data is flushed through from corresponding writes
+
+    c.incoming_limit = None
+    while len(c.incoming_pipe) > 0:
+        print(c.recv(16384))
