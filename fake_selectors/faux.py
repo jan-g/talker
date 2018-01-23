@@ -17,6 +17,7 @@ TODO: messages may be marked as having a causal originator
 
 import collections
 import logging
+import selectors
 import socket
 
 LOG = logging.getLogger(__name__)
@@ -25,35 +26,59 @@ LOG = logging.getLogger(__name__)
 class Mux:
     def __init__(self):
         self.listeners = {}    # addr -> Fakesocket
-        self.connections = {}  # (from, to) -> FakeSocket (the receiver)
+        self.connected = set() # (from, to) -> FakeSocket (the receiver)
+        self.fd_pool = set(range(10, 1000))
+        self.fd_map = {}
+        self.free_ports = set(range(30000, 32000))
+
+    def get_fd(self, sock):
+        fd = self.fd_pool.pop()
+        self.fd_map[fd] = sock
+        return fd
+
+    def release_fd(self, fd):
+        del self.fd_map[fd]
+        self.fd_pool.add(fd)
+
+    def auto_bind(self):
+        return '0.0.0.0', self.free_ports.pop()
 
     def accept(self, server, peer):
+        assert peer.state == FakeSocket.CONNECTING
         conn = FakeSocket(self)
-        conn.sock_addr = server.sock_addr
-        conn.peer_addr = peer.sock_addr
-        self.connections[conn.sock_addr, conn.peer_addr] = peer
-        self.connections[conn.peer_addr, conn.sock_addr] = conn
-        return conn, peer.sock_addr
+        conn.addr = server.addr
+        conn.peer = peer
+        conn.state = FakeSocket.CONNECTED
+        peer.peer = conn
+        peer.state = FakeSocket.CONNECTED
+        self.connected.add(conn)
+        self.connected.add(peer)
+        return conn, peer.addr
 
     def connect(self, client, addr):
         server = self.listeners[addr]
         server._enqueue(client)
 
     def register_listener(self, server):
-        assert server.sock_addr not in self.listeners
-        self.listeners[server.sock_addr] = server
+        assert server.addr not in self.listeners
+        self.listeners[server.addr] = server
 
     def close_listener(self, server):
-        del self.listeners[server.sock_addr]
+        del self.listeners[server.addr]
+        self.release_fd(server.fileno())
 
     def close_connected(self, sock):
         # Enqueue a closing packet at the other end
         peer = self.connections[sock.self_addr, sock.peer_addr]
         peer._enqueue(b'')
         del self.connections[sock.self_addr, sock.peer_addr]
+        self.release_fd(sock.fileno())
 
     def send(self, sock, data):
-        self.connections[sock.self_addr, sock.peer_addr]._enqueue(data)
+        sock._enqueue(data)
+
+    def unblocked_data_outstanding(self):
+        return any(sock._readable() for sock in self.fd_map.values())
 
 
 class StateError(BaseException):
@@ -61,14 +86,18 @@ class StateError(BaseException):
 
 
 class FakeSocket:
+    UNATTACHED = 'unattached'
+    CONNECTING = 'connecting'
+    LISTENING = 'listening'
+    CONNECTED = 'connected'
+
     def __init__(self, mux):
         self.mux = mux
 
-        self.sock_addr = None
-        self.peer_addr = None
+        self.addr = None
+        self.peer = None
         self.open = True
-        self.listening = False
-        self.connected = False
+        self.state = FakeSocket.UNATTACHED
         self.peer_shutdown = False
 
         self.blocking = True
@@ -76,12 +105,14 @@ class FakeSocket:
         self.incoming_pipe = collections.deque()
         self.incoming_limit = 0
 
+        self.fd = mux.get_fd(self)
+
     def _enqueue(self, datagram):
         self.incoming_pipe.append(datagram)
 
     def accept(self):
         assert self.open
-        assert self.listening
+        assert self.state == FakeSocket.LISTENING
 
         if self.incoming_limit == 0:
             if not self.blocking:
@@ -95,27 +126,30 @@ class FakeSocket:
         return self.mux.accept(self, peer)
 
     def bind(self, address):
-        assert self.sock_addr is None
+        assert self.addr is None
         assert self.open
-        self.sock_addr = address
+        self.addr = address
 
     def close(self):
-        if self.listening:
+        if self.state == FakeSocket.LISTENING:
             self.mux.close_listener(self)
-            self.listening = False
+            self.state = None
 
-        if self.connected:
+        elif self.state == FakeSocket.CONNECTED:
             self.mux.close_conencted(self)
-            self.connected = False
+            self.state = None
 
         self.open = False
 
     def connect(self, address):
-        assert self.peer_addr is None
+        assert self.peer is None
         assert self.open
+        assert self.state == FakeSocket.UNATTACHED
 
-        self.connected = True
-        self.peer_addr = address
+        if self.addr is None:
+            self.addr = self.mux.auto_bind()
+
+        self.state = FakeSocket.CONNECTING
         self.mux.connect(self, address)
 
     def connect_ex(self, address):
@@ -125,15 +159,15 @@ class FakeSocket:
         raise NotImplementedError()
 
     def fileno(self):
-        raise NotImplementedError()
+        return self.fd
 
     def getpeername(self):
         assert self.open
-        return self.peer_addr
+        return self.peer.addr
 
     def getsockname(self):
         assert self.open
-        return self.sock_addr
+        return self.addr
 
     def getsockopt(self, level, option, buffersize=None):
         raise NotImplementedError()
@@ -143,15 +177,22 @@ class FakeSocket:
 
     def listen(self, backlog=None):
         assert self.open
-        assert not self.connected
-        assert not self.listening
+        assert self.state == FakeSocket.UNATTACHED
 
-        self.listening = True
+        self.state = FakeSocket.LISTENING
         self.mux.register_listener(self)
+
+    def _readable(self):
+        return (self.state in (FakeSocket.LISTENING, FakeSocket.CONNECTED) and
+                (self.incoming_limit is None or self.incoming_limit > 0) and
+                len(self.incoming_pipe) > 0)
+
+    def _writable(self):
+        return self.state == FakeSocket.CONNECTED and not self.peer_shutdown
 
     def recv(self, buffersize, flags=None):
         assert self.open
-        assert self.connected
+        assert self.state == FakeSocket.CONNECTED
         assert flags is None
 
         if self.peer_shutdown:
@@ -191,7 +232,7 @@ class FakeSocket:
 
     def send(self, data, flags=None):
         assert self.open
-        assert self.connected
+        assert self.state == FakeSocket.CONNECTED
         assert flags is None
 
         self.mux.send(self, data)
@@ -221,17 +262,40 @@ class FakeSocket:
 
 
 class Selector:
+    def __init__(self, mux):
+        self.mux = mux
+        self.registry = {}
+
     def register(self, fileobj, events, data=None):
-        raise NotImplementedError()
+        if not events or events & ~(selectors.EVENT_READ | selectors.EVENT_WRITE):
+            raise ValueError()
+        if fileobj in self.registry:
+            raise KeyError()
+        self.registry[fileobj] = (events, data)
 
     def unregister(self, fileobj):
-        raise NotImplementedError()
+        del self.registry[fileobj]
 
     def modify(self, fileobj, events, data=None):
-        raise NotImplementedError()
+        if not events or events & ~(selectors.EVENT_READ | selectors.EVENT_WRITE):
+            raise ValueError()
+        if fileobj not in self.registry:
+            raise KeyError()
+        self.registry[fileobj] = (events, data)
 
     def select(self, timeout=None):
-        raise NotImplementedError()
+        result = []
+        for fileobj in self.registry:
+            sock = self.mux.fd_map[fileobj.fileno()]
+            events, data = self.registry[fileobj]
+            value = 0
+            if events & selectors.EVENT_READ and sock._readable():
+                value |= selectors.EVENT_READ
+            if events & selectors.EVENT_WRITE and sock._writable():
+                value |= selectors.EVENT_WRITE
+            if value != 0:
+                result.append((selectors.SelectorKey(sock, None, events, data), value))
+        return result
 
     def close(self):
         raise NotImplementedError()

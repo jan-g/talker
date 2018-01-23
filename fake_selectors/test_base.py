@@ -1,8 +1,14 @@
+import logging
 import socket
-import unittest
 
 import talker.base
 import fake_selectors.faux as socks
+
+LOG = logging.getLogger(__name__)
+
+
+def setup_module():
+    logging.basicConfig(level=logging.DEBUG)
 
 
 def test_basic_server():
@@ -25,7 +31,17 @@ def test_basic_server():
             pass
         return s
 
+    def _make_selector():
+        return socks.Selector(mux)
+
     s = talker.base.Server(make_server_socket=_make_server_socket,
                            make_client_socket=_make_client_socket,
-                           selector=socks.Selector)
-    s.process_sockets()
+                           selector=_make_selector,
+                           host='0.0.0.0',
+                           port=8889)
+
+    c = _make_client_socket()
+
+    while mux.unblocked_data_outstanding():
+        LOG.debug('Looping through process_sockets')
+        s.process_sockets()
