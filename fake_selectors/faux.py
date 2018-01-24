@@ -58,8 +58,13 @@ class Mux:
         return conn, peer.addr
 
     def connect(self, client, addr):
-        server = self.listeners[addr]
-        server._enqueue(client)
+        try:
+            server = self.listeners[addr]
+            server._enqueue(client)
+        except KeyError:
+            LOG.debug('Connection to non-listening address %s %s', client, addr)
+            client.state = FakeSocket.ERRORED
+            client._enqueue(ConnectionRefusedError())
 
     def register_listener(self, server):
         assert server.addr not in self.listeners
@@ -71,13 +76,18 @@ class Mux:
 
     def close_connected(self, sock):
         # Enqueue a closing packet at the other end
-        peer = self.connections[sock.self_addr, sock.peer_addr]
-        peer._enqueue(b'')
-        del self.connections[sock.self_addr, sock.peer_addr]
+        sock.peer._enqueue(b'')
+        self.connected.remove(sock)
+        self.release_fd(sock.fileno())
+
+    def close_errored(self, sock):
         self.release_fd(sock.fileno())
 
     def unblocked_data_outstanding(self):
         return any(sock._readable() for sock in self.fd_map.values())
+
+    def all_sockets(self):
+        return set(self.fd_map.values())
 
 
 class StateError(BaseException):
@@ -89,6 +99,7 @@ class FakeSocket:
     CONNECTING = 'connecting'
     LISTENING = 'listening'
     CONNECTED = 'connected'
+    ERRORED = 'errored'
 
     def __init__(self, mux):
         self.mux = mux
@@ -127,6 +138,7 @@ class FakeSocket:
             datagram = self.on_receipt(self, datagram)
             if datagram is None:
                 return
+        LOG.debug('Enqueuing %r', datagram)
         self.incoming_pipe.append(datagram)
 
     def _attach(self):
@@ -154,6 +166,9 @@ class FakeSocket:
             self.incoming_limit -= 1
 
         peer = self.incoming_pipe.popleft()
+        if isinstance(peer, Exception):
+            raise peer
+
         return self.mux.accept(self, peer)
 
     def bind(self, address):
@@ -167,7 +182,11 @@ class FakeSocket:
             self.state = None
 
         elif self.state == FakeSocket.CONNECTED:
-            self.mux.close_conencted(self)
+            self.mux.close_connected(self)
+            self.state = None
+
+        elif self.state == FakeSocket.ERRORED:
+            self.mux.close_errored(self)
             self.state = None
 
         self.open = False
@@ -215,7 +234,7 @@ class FakeSocket:
         self.mux.register_listener(self)
 
     def _readable(self):
-        return (self.state in (FakeSocket.LISTENING, FakeSocket.CONNECTED) and
+        return (self.state in (FakeSocket.LISTENING, FakeSocket.ERRORED, FakeSocket.CONNECTED) and
                 (self.incoming_limit is None or self.incoming_limit > 0) and
                 len(self.incoming_pipe) > 0)
 
@@ -224,7 +243,7 @@ class FakeSocket:
 
     def recv(self, buffersize, flags=None):
         assert self.open
-        assert self.state == FakeSocket.CONNECTED
+        assert self.state in (FakeSocket.ERRORED, FakeSocket.CONNECTED)
         assert flags is None
 
         if self.peer_shutdown:
@@ -239,6 +258,10 @@ class FakeSocket:
             self.incoming_limit -= 1
 
         packet = self.incoming_pipe.popleft()
+        if isinstance(packet, Exception):
+            LOG.debug('Raising exception from recv: %r', packet)
+            raise packet
+
         assert isinstance(packet, bytes)
         assert len(packet) <= buffersize
 

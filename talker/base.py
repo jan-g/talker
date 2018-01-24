@@ -72,7 +72,13 @@ class ClientSocket(Socket):
         return "{}{}".format(self.__class__.__name__, self.addr)
 
     def read(self):
-        input = self.socket.recv(16384)
+        try:
+            input = self.socket.recv(16384)
+        except ConnectionError:
+            # This was an outgoing connection that failed, or a reset socket,
+            # or what-have-you.
+            self.close()
+            return
         if len(input) == 0:
             # Peer shutdown
             self.close()
