@@ -53,6 +53,8 @@ class Mux:
         peer.state = FakeSocket.CONNECTED
         self.connected.add(conn)
         self.connected.add(peer)
+        conn._attach()
+        peer._attach()
         return conn, peer.addr
 
     def connect(self, client, addr):
@@ -73,11 +75,6 @@ class Mux:
         peer._enqueue(b'')
         del self.connections[sock.self_addr, sock.peer_addr]
         self.release_fd(sock.fileno())
-
-    def send(self, sock, data):
-        while b'\r\n' in data:
-            packet, crlf, data = data.partition(b'\r\n')
-            sock.peer._enqueue(packet + crlf)
 
     def unblocked_data_outstanding(self):
         return any(sock._readable() for sock in self.fd_map.values())
@@ -109,6 +106,9 @@ class FakeSocket:
 
         self.fd = mux.get_fd(self)
 
+        self.on_receipt = None
+        self.on_attach = None
+
     def __str__(self):
         result = '{}({})'.format(self.state, self.addr)
         if self.state == FakeSocket.CONNECTING:
@@ -123,7 +123,23 @@ class FakeSocket:
     __repr__ = __str__
 
     def _enqueue(self, datagram):
+        if self.on_receipt is not None:
+            datagram = self.on_receipt(self, datagram)
+            if datagram is None:
+                return
         self.incoming_pipe.append(datagram)
+
+    def _attach(self):
+        """Called to signal an attachment"""
+        if self.on_attach is not None:
+            self.on_attach(self)
+
+    def _process_incoming_data(self, data):
+        while b'\r\n' in data:
+            packet, crlf, data = data.partition(b'\r\n')
+            self._enqueue(packet + crlf)
+        if len(data) != 0:
+            self._enqueue(data)
 
     def accept(self):
         assert self.open
@@ -251,7 +267,8 @@ class FakeSocket:
         assert self.state == FakeSocket.CONNECTED
         assert flags is None
 
-        self.mux.send(self, data)
+        self.peer._process_incoming_data(data)
+        return len(data)
 
     def sendall(self, data, flags=None):
         raise NotImplementedError()
