@@ -13,7 +13,8 @@ def run_servers(mux, *servers, max=None):
     while c < 2:
         for s in servers:
             s.process_sockets()
-        if mux.unblocked_data_outstanding():
+        # if mux.unblocked_data_outstanding():
+        if any(sock._socket._readable() for s in servers for sock in s.sockets):
             c = 0
         else:
             c += 1
@@ -29,22 +30,26 @@ def run_servers_randomly(mux, *servers):
     c = 0
     while c < 2:
         ready = []
-        for sock in mux.all_sockets():
-            sock.incoming_limit = 0
-            if len(sock.incoming_pipe) > 0:
-                ready.append(sock)
+        for srv in servers:
+            for sock in srv.sockets:
+                s = sock._socket
+                s.incoming_limit = 0
+                if len(s.incoming_pipe) > 0:
+                    ready.append(s)
         if len(ready) == 0:
             c += 1
         else:
             c = 0
-            sock = random.choice(ready)
-            LOG.debug('Letting through a message to %s: %r', sock, sock.incoming_pipe[0])
-            sock.incoming_limit = 1
-        for s in servers:
-            s.process_sockets()
+            s = random.choice(ready)
+            LOG.debug('Letting through a message to %s: %r', s, s.incoming_pipe[0])
+            s.incoming_limit = 1
+        for srv in servers:
+            srv.process_sockets()
 
-    for sock in mux.all_sockets():
-        sock.incoming_limit = None
+    for srv in servers:
+        for sock in srv.sockets:
+            s = sock._socket
+            s.incoming_limit = None
 
 
 def make_mux():

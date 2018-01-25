@@ -1,3 +1,4 @@
+import collections
 import logging
 import random
 
@@ -19,9 +20,9 @@ def test_network_1():
 
     clear_client_history(*clients)
     clients[1].send('/peer-connect 0.0.0.0 2000\r\n')
-    run_servers(mux, *servers)  # This'll error out
+    run_servers(mux, servers[1])  # This'll error out
     clients[1].send('/peers\r\n')
-    run_servers(mux, *servers)  # No peers
+    run_servers(mux, servers[1])  # No peers
     assert ['There are 0 peers directly connected'] == clients[1].text
 
     peer_listen(mux, servers, clients)
@@ -40,7 +41,7 @@ def test_network_1():
     clear_client_history(*clients)
     clients[0].send('/who\r\n')
     clients[1].send('/who\r\n')
-    run_servers_randomly(mux, *servers)  # Should result in a few broadcasts
+    run_servers(mux, *servers)  # Should result in a few broadcasts
 
     for client in clients:
         assert [
@@ -93,18 +94,32 @@ def test_random_network():
     name_clients(mux, servers, clients)
     peer_listen(mux, servers, clients)
 
+    connected = {i: {i} for i in range(NUM_SERVERS)}
+
     for i, c in enumerate(clients):
         peer = random.randrange(NUM_SERVERS)
         print(i, '/peer-connect 0.0.0.0', 2000 + peer)
         c.send('/peer-connect 0.0.0.0 {}\r\n', 2000 + peer)
+        # We can multi-peer with a single server:
+        # eg, 0 peer-connects to 1, 1 peer-connects to 0.
+        # We don't care about that as far as /who is concerned -
+        # just the total number of attached servers
+
+        # Merge set items
+        connected[i].update(connected[peer])
+        for p in connected[peer]:
+            connected[p] = connected[i]
 
     run_servers_randomly(mux, *servers)
+
+    # At this point the algorithm will have stabilised, so we can run all
+    # server messages together again.
 
     # Count the number of peers. Should be 2*NUM_SERVERS
     clear_client_history(*clients)
     for c in clients:
         c.send('/peers\r\n')
-    run_servers_randomly(mux, *servers)
+    run_servers(mux, *servers)
 
     peers = 0
     for c in clients:
@@ -115,6 +130,44 @@ def test_random_network():
         peers += int(words[2])
 
     assert 2 * NUM_SERVERS == peers
+
+    clear_client_history(*clients)
+    for c in clients:
+        c.send('/who\r\n')
+    run_servers(mux, *servers)
+
+    for i, c in enumerate(clients):
+        # 'There are \d+ users online on \d+ servers:'
+        print(c.text)
+        words = c.text[0].split()
+        assert 'There are'.split() == words[:2]
+        assert 'users online on'.split() == words[3:6]
+        assert 'servers:'.split() == words[7:]
+        u = int(words[2])
+        s = int(words[6])
+        # Each server has a single client logged onto it
+        assert u == s
+        # The number of servers reachable from #i is as expected
+        assert len(connected[i]) == s
+
+        s_name = None
+        for line in c.text[1:]:
+            if line.startswith('  Server:'):
+                s_name = line.split()[-1].partition('s')[2]
+                s -= 1
+                print('Server', s_name)
+                # This server is expected to be reachable
+                assert int(s_name) in connected[i]
+            elif line.startswith('    '):
+                u_name = line.split()[-1].partition('client')[2]
+                u -= 1
+                # Each user is on their corresponding server
+                assert u_name == s_name
+            else:
+                assert False
+        # We've accounted for all users and servers
+        assert 0 == u
+        assert 0 == s
 
 
 if __name__ == '__main__':
