@@ -25,8 +25,8 @@ LOG = logging.getLogger(__name__)
 
 class Mux:
     def __init__(self):
-        self.listeners = {}    # addr -> Fakesocket
-        self.connected = set() # (from, to) -> FakeSocket (the receiver)
+        self.listeners = {}     # addr -> Fakesocket
+        self.connected = set()  # Each end of a socket pair appears here
         self.fd_pool = set(range(10, 1000))
         self.fd_map = {}
         self.free_ports = set(range(30000, 32000))

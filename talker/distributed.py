@@ -114,5 +114,3 @@ class ScatterGatherMixin:
             respond.message_id = id
             fn(self, payload, respond)
         return recv
-
-

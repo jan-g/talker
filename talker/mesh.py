@@ -116,7 +116,9 @@ class Server(talker.server.Server):
             message = target.prefix() + '|' + payload
 
         self.message_id += 1
-        self.peer_propagate(self._format_peer_line(self.peer_id, self.message_id, message, broadcast=False), include={peer})
+        self.peer_propagate(
+            self._format_peer_line(self.peer_id, self.message_id, message, broadcast=False),
+            include={peer})
 
     def peer_propagate(self, line, include=None, exclude=set()):
         """Pass a received message on, if necessary"""

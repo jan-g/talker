@@ -112,13 +112,13 @@ class LoginObserver(talker.mesh.PeerObserver, talker.distributed.ScatterGatherMi
         @self.scatter_request(LoginObserver.CHECK_USER, username)
         def callback(responses, complete=True):
             LOG.debug('check_user responses are all in: %s', responses)
-            ts = un = pw = None
+            ts = pw = None
             for responder in responses:
                 if responses[responder] != '':
                     t, u, p = responses[responder].split(';')
                     t = float(t)
                     if ts is None or t > ts and u == username:
-                        ts, un, pw = t, u, p
+                        ts, pw = t, p
             if ts is not None:
                 self.account_db[username] = (ts, pw)
                 client._have_username(username, pw)

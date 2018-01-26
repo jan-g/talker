@@ -1,4 +1,3 @@
-import talker.server
 from talker.mesh import PeerObserver
 
 # This causes speech to be broadcast to all connected servers
