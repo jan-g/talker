@@ -4,7 +4,7 @@ import random
 
 import talker.distributed
 
-from fake_selectors.test_utils import run_servers, run_servers_randomly, make_mux, clear_client_history
+from fake_selectors.test_utils import run_servers, run_servers_randomly, make_mux, clear_client_history, mocked_time
 
 LOG = logging.getLogger(__name__)
 
@@ -87,6 +87,7 @@ def peer_listen(mux, servers, clients):
     run_servers(mux, *servers)
 
 
+@mocked_time
 def test_random_network():
     NUM_SERVERS = 15
 
@@ -155,7 +156,6 @@ def test_random_network():
             if line.startswith('  Server:'):
                 s_name = line.split()[-1].partition('s')[2]
                 s -= 1
-                print('Server', s_name)
                 # This server is expected to be reachable
                 assert int(s_name) in connected[i]
             elif line.startswith('    '):

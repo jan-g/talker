@@ -1,6 +1,8 @@
+import functools
 import logging
 import random
 import socket
+import time
 
 from fake_selectors import faux as socks
 
@@ -95,3 +97,21 @@ def _on_receipt(client, packet):
 def clear_client_history(*clients):
     for c in clients:
         c.text = []
+
+
+def mocked_time(fn):
+    """Some implementations have varying behaviour depending on the time.
+
+    This will wrap a test case and return a constant value for time.time(),
+    which should prevent nondeterministic behaviour arising from the speed
+    at which a test-case can run.
+    """
+    @functools.wraps(fn)
+    def f(*args, **kwargs):
+        t = time.time
+        time.time = lambda: 0
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            time.time = t
+    return f

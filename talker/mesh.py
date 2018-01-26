@@ -226,8 +226,10 @@ class Server(talker.server.Server):
 
 
 class PeerObserver:
-    def __init__(self, server=None):
+    def __init__(self, server=None, *args, **kwargs):
         self._server = server
+        self._methods = {}
+        super().__init__(*args, **kwargs)  # Give mixins a chance to initialise
 
     @property
     def server(self):
@@ -237,11 +239,16 @@ class PeerObserver:
     def prefix(cls):
         return cls.__name__
 
-    def unicast(self, peer, payload):
-        self.server.peer_unicast(peer, payload, self)
+    def register_method(self, name, call):
+        self._methods[name] = call
 
-    def broadcast(self, payload):
-        self.server.peer_broadcast(payload, target=self)
+    def unicast(self, peer, method, payload=''):
+        self.server.peer_unicast(peer, method + '|' + payload, self)
+
+    def broadcast(self, method, payload='', target=None):
+        if target is None:
+            target = self
+        self.server.peer_broadcast(method + '|' + payload, target=target)
 
     def peer_added(self, peer):
         LOG.debug('New peer detected by %s: %s', self, peer)
@@ -251,6 +258,8 @@ class PeerObserver:
 
     def notify(self, peer, source, id, message):
         LOG.debug('Message %s received from %s via %s: %s', id, source, peer, message)
+        method, _, payload = message.partition('|')
+        self._methods[method](peer, source, id, payload)
 
     def tick(self):
         pass
@@ -259,9 +268,17 @@ class PeerObserver:
 # Some example extensions using the above now follow. This causes speech to be broadcast to all connected servers
 
 class SpeechObserver(PeerObserver):
+    SAY = 'SAY'
 
-    def notify(self, _, source, id, message):
-        name, line = message.split('|', 1)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.register_method(SpeechObserver.SAY, self.recv_say)
+
+    def send_say(self, who, what):
+        self.broadcast(SpeechObserver.SAY, '{}|{}'.format(who, what))
+
+    def recv_say(self, _, source, id, args):
+        name, line = args.split('|', 1)
         self.server.tell_speakers("{}: {}".format(name, line))
 
 
@@ -271,7 +288,7 @@ class SpeakerClient(Client):
         self.register_command("/reachable", SpeakerClient.command_reachable)
 
     def speak(self, line):
-        self.server.peer_broadcast("{}|{}".format(self.name, line), target=SpeechObserver)
+        self.server.observer(SpeechObserver).send_say(self.name, line)
 
     def command_reachable(self):
         helper = self.server.observer(TopologyObserver)
@@ -295,17 +312,18 @@ def speaker_server(**kwargs):
 # and use it to form an up-to-date map of who is connected to whom.
 
 class TopologyObserver(PeerObserver):
+    I_AM = 'i-am'
+    I_SEE = 'i-see'
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.register_method(TopologyObserver.I_AM, self.recv_i_am)
+        self.register_method(TopologyObserver.I_SEE, self.recv_i_see)
         # We track all the peers we know about, keeping track of who they
         # are directly connected to, and the most recent update we have received from them.
         self.peer_ids = {}
         self.topology = {self.server.peer_id: (0, set())}
         self.calculate_reachable_peers()
-
-    I_AM = 'i-am'
-    I_SEE = 'i-see'
 
     def peer_added(self, peer):
         LOG.debug('New peer detected by %s: %s', self, peer)
@@ -318,27 +336,17 @@ class TopologyObserver(PeerObserver):
         self.broadcast_new_neighbours()
 
     def broadcast_new_neighbours(self):
-        self.broadcast(TopologyObserver.I_SEE + '|' + ';'.join(self.peer_ids.values()))
+        self.broadcast(TopologyObserver.I_SEE, ';'.join(self.peer_ids.values()))
 
-    def notify(self, peer, source, id, message):
-        LOG.debug('Topology update %d received from %s: %s', id, source, message)
-        kind, _, payload = message.partition('|')
-        if kind == TopologyObserver.I_AM:
-            self.process_i_am(peer, source)
-        elif kind == TopologyObserver.I_SEE:
-            self.process_i_see(source, id, payload)
-        else:
-            LOG.error('Unknown topology message %s from %s', message, peer)
-
-    def process_i_am(self, peer, source):
+    def recv_i_am(self, peer, source, id, args):
         self.peer_ids[peer] = source
         self.broadcast_new_neighbours()
 
-    def process_i_see(self, source, id, payload):
-        if payload == '':
+    def recv_i_see(self, peer, source, id, args):
+        if args == '':
             neighbours = set()
         else:
-            neighbours = set(payload.split(';'))
+            neighbours = set(args.split(';'))
 
         if source not in self.topology:
             self.topology[source] = (id, neighbours)
