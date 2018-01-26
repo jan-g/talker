@@ -22,22 +22,50 @@ def test_new_user():
     clear_client_history(client)
     client.send('foo\r\n')
     run_servers(mux, server)
-    assert 'A new user! Enter your password:' == client.text[0]
+    assert ['A new user! Enter your password:'] == client.text
 
     clear_client_history(client)
     client.send('bar\r\n')
     run_servers(mux, server)
-    assert 'Confirm your password:' == client.text[0]
+    assert ['Confirm your password:'] == client.text
 
     clear_client_history(client)
     client.send('bar\r\n')
     run_servers(mux, server)
-    assert 'Welcome, foo' == client.text[0]
+    assert ['Welcome, foo', 'foo has joined'] == client.text
 
     clear_client_history(client)
     client.send('hello, world\r\n')
     run_servers(mux, server)
-    assert 'foo: hello, world' == client.text[0]
+    assert ['foo: hello, world'] == client.text
+
+    # We might build on this test
+    return mux, server, client
+
+
+def test_good_login():
+    mux, server, client = test_new_user()
+    client.close()
+    run_servers(mux, server)
+
+    client = mux._make_client_socket('0.0.0.0', 1000, record=True, send_str = True)
+    run_servers(mux, server)
+    assert 'Enter your username,'.split() == client.text[0].split()[:3]
+
+    clear_client_history(client)
+    client.send('foo\r\n')
+    run_servers(mux, server)
+    assert ['Enter password:'] == client.text
+
+    clear_client_history(client)
+    client.send('bar\r\n')
+    run_servers(mux, server)
+    assert ['Welcome, foo', 'foo has joined'] == client.text
+
+    clear_client_history(client)
+    client.send('hello, world\r\n')
+    run_servers(mux, server)
+    assert ['foo: hello, world'] == client.text
 
 
 if __name__ == '__main__':

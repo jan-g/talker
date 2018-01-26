@@ -85,6 +85,8 @@ def make_mux():
     def _make_selector():
         return socks.Selector(mux)
 
+    mux._make_client_socket = _make_client_socket
+
     return mux, _make_server_socket, _make_client_socket, _make_selector
 
 
