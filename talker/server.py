@@ -117,7 +117,7 @@ class Server(talker.base.Server):
         self.speakers.add(client)
 
     def unregister_speaker(self, client):
-        self.speakers.remove(client)
+        self.speakers.discard(client)
 
     def list_speakers(self):
         return set(self.speakers)

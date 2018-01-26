@@ -67,6 +67,7 @@ class ClientSocket(Socket):
         self.addr = addr
         self.in_buffer = bytes()
         self.out_buffer = bytes()
+        self._close_after_output = False
 
     def __str__(self):
         return "{}{}".format(self.__class__.__name__, self.addr)
@@ -91,15 +92,20 @@ class ClientSocket(Socket):
         self.in_buffer = bytes()
 
     def has_output(self):
-        return len(self.out_buffer) > 0
+        return len(self.out_buffer) > 0 or self._close_after_output
 
     def write(self):
         if len(self.out_buffer) > 0:
             outlen = self.socket.send(self.out_buffer)
             self.out_buffer = self.out_buffer[outlen:]
+        elif self._close_after_output:
+            self.close()
 
     def queue_output(self, output):
         self.out_buffer += output
+
+    def mark_for_close(self, close=True):
+        self._close_after_output = close
 
 
 def _make_server_socket(host, port):

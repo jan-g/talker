@@ -19,7 +19,7 @@ def server():
 
     args = parser.parse_args()
 
-    s = talker.speaker_server(port=args.port, peer_id=args.id)
+    s = talker.auth_server(port=args.port, peer_id=args.id)
 
     s.loop()
 
