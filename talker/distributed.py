@@ -10,36 +10,9 @@ import functools
 import logging
 import time
 
-import talker.mesh
+import talker.mixin.topo
 
 LOG = logging.getLogger(__name__)
-
-
-class WhoClient(talker.mesh.SpeakerClient):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.register_command("/who", WhoClient.command_who)
-
-    def command_who(self):
-        helper = self.server.observer(WhoObserver)
-        helper.who(self)
-
-    def result_who(self, responses):
-        LOG.debug('result_who: %s', responses)
-        count = sum(len(r) for r in responses.values())
-        self.output_line('There are {} users online on {} servers:'.format(count, len(responses)))
-        for server in sorted(responses):
-            self.output_line('  Server: {}'.format(server))
-            for speaker in sorted(responses[server]):
-                self.output_line('    {}'.format(speaker))
-
-
-def speaker_server(**kwargs):
-    s = talker.mesh.Server(client_factory=WhoClient, **kwargs)
-    s.observe_broadcast(talker.mesh.SpeechObserver(s))
-    s.observe_broadcast(talker.mesh.TopologyObserver(s))
-    s.observe_broadcast(WhoObserver(s))
-    return s
 
 
 # This is a more sophisticated observer.
@@ -58,6 +31,15 @@ class ScatterGatherMixin:
         self.register_method(ScatterGatherMixin.GATHER, self.recv_gather)
 
     def scatter_request(self, method, payload='', callback=None):
+        # Is this being used as a decorator?
+        if callback is None:
+            def wrapper(callback):
+                self.request_id += 1
+                self.outstanding_requests[0][self.request_id] = ({}, callback)
+                self.broadcast(method, '{}|{}'.format(self.request_id, payload))
+                return callback
+            return wrapper
+
         # Give this request an id
         self.request_id += 1
         self.outstanding_requests[0][self.request_id] = ({}, callback)
@@ -84,7 +66,8 @@ class ScatterGatherMixin:
                     return
 
                 responses[source] = payload
-                if set(responses) == self.server.observer(talker.mesh.TopologyObserver).reachable():
+                if set(responses) == self.server.observer(
+                        talker.mixin.topo.TopologyObserver).reachable():
                     LOG.debug('Have complete set of responses to %d, triggering callback', response_id)
                     callback(responses)
                     del outstanding[response_id]
@@ -116,7 +99,7 @@ class ScatterGatherMixin:
     def parse_scatter_gather(self, source, message_id, payload):
         request_id, payload = payload.split('|', 2)
 
-        def responder(result):
+        def responder(result=''):
             self.broadcast(ScatterGatherMixin.GATHER, '{}|{}|{}'.format(source, request_id, result))
 
         return responder, payload
@@ -133,23 +116,3 @@ class ScatterGatherMixin:
         return recv
 
 
-class WhoObserver(talker.mesh.PeerObserver, ScatterGatherMixin):
-    WHO_REQ = 'who'
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.register_method(WhoObserver.WHO_REQ, self.recv_who)
-
-    @ScatterGatherMixin.recv_scatter
-    def recv_who(self, payload, respond):
-        LOG.debug('Who request from %s (%d): %s', respond.source, respond.message_id, payload)
-        result = ';'.join(client.name for client in self.server.list_speakers())
-        respond(result)
-
-    def who(self, client):
-        def callback(responses, complete=True):
-            LOG.debug('Who responses are all in: %s', responses)
-            client.result_who({server: responses[server].split(';') if responses[server] != '' else []
-                               for server in responses})
-
-        self.scatter_request(WhoObserver.WHO_REQ, callback=callback)

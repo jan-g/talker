@@ -2,6 +2,7 @@ import collections
 import logging
 import random
 
+import talker
 import talker.distributed
 
 from fake_selectors.test_utils import run_servers, run_servers_randomly, make_mux, clear_client_history, mocked_time
@@ -59,7 +60,7 @@ def construct_network(n):
     servers = []
     clients = []
     for i in range(n):
-        server = talker.distributed.speaker_server(
+        server = talker.speaker_server(
             make_server_socket=mss,
             make_client_socket=mcs,
             selector=sel,
